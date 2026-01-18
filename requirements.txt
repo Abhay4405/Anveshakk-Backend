@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+deepface
+opencv-python
+requests
+numpy
+tensorflow>=2.13.0
+tf-keras>=2.13.0python-dotenv
+smtplib
+email-validator
