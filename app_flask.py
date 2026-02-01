@@ -70,59 +70,68 @@ def health():
 
 @app.route('/match-face', methods=['POST'])
 def match_face():
-    """Compare two faces"""
+    """Compare two faces using DeepFace - ENFORCE_DETECTION=True"""
     try:
         data = request.get_json()
         
         if not data or 'img1_url' not in data or 'img2_url' not in data:
             return jsonify({"error": "Missing img1_url or img2_url"}), 400
         
-        logger.info("=" * 50)
-        logger.info("🔍 Face matching started")
-        logger.info(f"Lost: {data['img1_url']}")
-        logger.info(f"Found: {data['img2_url']}")
+        logger.info("=" * 60)
+        logger.info("🔍 FACE MATCHING REQUEST")
+        logger.info(f"Lost image: {data['img1_url']}")
+        logger.info(f"Found image: {data['img2_url']}")
         
         # Load images
+        logger.info("📥 Loading images...")
         img1 = load_image(data['img1_url'])
         img2 = load_image(data['img2_url'])
+        logger.info(f"✓ Image 1 loaded: {img1.shape}")
+        logger.info(f"✓ Image 2 loaded: {img2.shape}")
         
-        logger.info("📊 Running verification...")
+        logger.info("🔎 Running DeepFace.verify() with ENFORCE_DETECTION=True...")
         
         # Get DeepFace
         DeepFace = get_deepface()
         
-        # Verify
+        # Run DeepFace with ENFORCE DETECTION - this will throw error if no face found!
         result = DeepFace.verify(
-            img1_path=img1,
-            img2_path=img2,
+            img1,
+            img2,
             model_name="Facenet",
-            enforce_detection=False,
+            enforce_detection=True,  # ⭐ CRITICAL: Throws error if no face detected
             detector_backend="opencv",
-            distance_metric="cosine"
+            align=True,
+            normalization="base"
         )
         
-        distance = result.get("distance", 0)
-        # Custom threshold for better matching
-        # Using 0.60 threshold (more lenient for real-world images)
-        verified = distance < 0.60
-        confidence = max(0, (1 - distance) * 100)
+        # Calculate confidence
+        distance = result.get("distance", float('inf'))
+        confidence = (1 - distance) * 100 if distance != float('inf') else 0
         
-        logger.info(f"🔍 Distance: {distance:.4f} | Threshold: 0.60 | Match: {verified}")
+        # Threshold: 0.6 distance = 40% confidence (Facenet standard threshold)
+        # Only match if distance <= 0.6 (confidence >= 40%)
+        is_match = bool(result.get("verified", False)) and distance <= 0.6
         
+        logger.info(f"\n✓ Face Detection: SUCCESS")
         logger.info(f"✓ Distance: {distance:.4f}")
         logger.info(f"✓ Confidence: {confidence:.2f}%")
-        logger.info(f"✓ Match: {verified}")
-        logger.info("=" * 50)
+        logger.info(f"✓ Threshold check (distance <= 0.6): {is_match}")
+        logger.info(f"✓ FINAL RESULT: {'MATCHED' if is_match else 'NO MATCH'}")
+        logger.info("=" * 60)
         
         return jsonify({
-            "matched": verified,
+            "matched": is_match,
             "confidence": round(confidence, 2),
             "distance": round(distance, 4)
         })
         
     except Exception as e:
-        logger.error(f"❌ Error: {str(e)}")
-        return jsonify({"error": str(e)}), 400
+        logger.error(f"❌ FACE MATCHING FAILED!")
+        logger.error(f"❌ Error Type: {type(e).__name__}")
+        logger.error(f"❌ Error Message: {str(e)}")
+        logger.error("=" * 60)
+        return jsonify({"error": f"Face matching error: {str(e)}"}), 400
 
 @app.route('/', methods=['GET'])
 def root():

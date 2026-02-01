@@ -77,50 +77,63 @@ def health_check():
 
 @app.post("/match-face")
 def match_face(data: MatchRequest):
-    """Compare two faces using DeepFace"""
+    """Compare two faces using DeepFace - ENFORCE_DETECTION=True"""
     try:
-        logger.info("Starting face matching...")
+        logger.info("=" * 60)
+        logger.info("🔍 FACE MATCHING REQUEST")
         logger.info(f"Image 1 (Lost): {data.img1_url}")
         logger.info(f"Image 2 (Found): {data.img2_url}")
         
         # Load both images
+        logger.info("📥 Loading images...")
         img1 = load_image(data.img1_url)
         img2 = load_image(data.img2_url)
+        logger.info(f"✓ Image 1 loaded: {img1.shape}")
+        logger.info(f"✓ Image 2 loaded: {img2.shape}")
         
-        logger.info("Images loaded successfully. Running DeepFace verification...")
+        logger.info("🔎 Running DeepFace.verify() with ENFORCE_DETECTION=True...")
         
         # Get DeepFace (lazy load)
         DeepFace = get_deepface()
         
-        # Run DeepFace with proper settings
+        # Run DeepFace with ENFORCE DETECTION - this will throw error if no face found!
         result = DeepFace.verify(
             img1,
             img2,
             model_name="Facenet",
-            enforce_detection=False,
-            detector_backend="opencv"
+            enforce_detection=True,  # ⭐ CRITICAL: Throws error if no face detected
+            detector_backend="opencv",
+            align=True,
+            normalization="base"
         )
         
         # Calculate confidence
-        distance = result["distance"]
-        confidence = (1 - distance) * 100
+        distance = result.get("distance", float('inf'))
+        confidence = (1 - distance) * 100 if distance != float('inf') else 0
         
-        # Ensure matched is boolean
-        matched = bool(result["verified"])
+        # Threshold: 0.6 distance = 40% confidence (Facenet standard threshold)
+        # Only match if distance <= 0.6 (confidence >= 40%)
+        is_match = bool(result.get("verified", False)) and distance <= 0.6
         
-        logger.info(f"✓ Distance: {distance}")
-        logger.info(f"✓ Confidence: {confidence}%")
-        logger.info(f"✓ Matched: {matched}")
+        logger.info(f"\n✓ Face Detection: SUCCESS")
+        logger.info(f"✓ Distance: {distance:.4f}")
+        logger.info(f"✓ Confidence: {confidence:.2f}%")
+        logger.info(f"✓ Threshold check (distance <= 0.6): {is_match}")
+        logger.info(f"✓ FINAL RESULT: {'MATCHED' if is_match else 'NO MATCH'}")
+        logger.info("=" * 60)
         
         return {
-            "matched": matched,
+            "matched": is_match,
             "confidence": round(confidence, 2),
             "distance": round(distance, 4)
         }
         
     except Exception as e:
-        logger.error(f"Face matching error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"❌ FACE MATCHING FAILED!")
+        logger.error(f"❌ Error Type: {type(e).__name__}")
+        logger.error(f"❌ Error Message: {str(e)}")
+        logger.error("=" * 60)
+        raise HTTPException(status_code=400, detail=f"Face matching error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
