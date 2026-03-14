@@ -7,6 +7,13 @@ import numpy as np
 import logging
 from urllib.parse import unquote
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Suppress TensorFlow warnings BEFORE importing
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -43,6 +50,10 @@ class MatchRequest(BaseModel):
     img1_url: str
     img2_url: str
 
+class SendOTPRequest(BaseModel):
+    email: str
+    otp: str
+
 def load_image(url: str):
     """Download and decode image from URL"""
     try:
@@ -74,6 +85,87 @@ def load_image(url: str):
 def health_check():
     """Health check endpoint"""
     return {"status": "ok", "service": "face-matching-api"}
+
+@app.post("/send-otp")
+def send_otp(request: SendOTPRequest):
+    """Send OTP via email"""
+    try:
+        email = request.email.strip()
+        otp = request.otp.strip()
+        
+        # Validate email
+        if not email or '@' not in email:
+            return {"success": False, "error": "Invalid email address"}
+        
+        if not otp or len(otp) != 6 or not otp.isdigit():
+            return {"success": False, "error": "Invalid OTP"}
+        
+        # Get email config from environment variables
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        smtp_port = int(os.getenv('SMTP_PORT', 587))
+        sender_email = os.getenv('SENDER_EMAIL', '')
+        sender_password = os.getenv('SENDER_PASSWORD', '')
+        
+        # If no credentials, return demo mode
+        if not sender_email or not sender_password:
+            logger.info(f"📧 DEMO MODE: OTP {otp} would be sent to {email}")
+            return {
+                "success": True,
+                "message": f"DEMO MODE: OTP {otp} sent to {email}",
+                "email": email
+            }
+        
+        # Create email message
+        message = MIMEMultipart("alternative")
+        message["Subject"] = "Anveshak Parent Verification OTP"
+        message["From"] = sender_email
+        message["To"] = email
+        
+        # HTML email body
+        html = f"""\
+        <html>
+          <body>
+            <div style="background-color: #f5f5f5; padding: 20px; font-family: Arial, sans-serif;">
+              <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 500px; margin: 0 auto;">
+                <h2 style="color: #1976d2; text-align: center;">Anveshak - Parent Verification</h2>
+                <p>Your One-Time Password (OTP) for email verification is:</p>
+                <div style="text-align: center; margin: 30px 0;">
+                  <h1 style="color: #1976d2; font-size: 48px; letter-spacing: 5px; margin: 0;">{otp}</h1>
+                </div>
+                <p>This OTP is valid for 10 minutes. Do not share this code with anyone.</p>
+                <p style="color: #666; font-size: 12px; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+                  If you didn't request this OTP, please ignore this email.
+                </p>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+        
+        part = MIMEText(html, "html")
+        message.attach(part)
+        
+        # Send email
+        try:
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, message.as_string())
+            server.quit()
+            
+            logger.info(f"✅ Email sent successfully to {email}")
+            return {
+                "success": True,
+                "message": f"OTP sent to {email}",
+                "email": email
+            }
+        except smtplib.SMTPException as e:
+            logger.error(f"❌ SMTP Error: {str(e)}")
+            return {"success": False, "error": f"Failed to send email: {str(e)}"}
+            
+    except Exception as e:
+        logger.error(f"❌ Error in send_otp: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 @app.post("/match-face")
 def match_face(data: MatchRequest):
